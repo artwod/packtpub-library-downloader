@@ -79,8 +79,11 @@ def save_book_details(book, title, directory, session, headers):
 
         # save to file
         filename = os.path.join(directory, title + ".json")
-        with open(filename, 'w') as outfile:
-            json.dump(info_dict, outfile)
+        if not os.path.exists(filename):
+            with open(filename, 'w') as outfile:
+                json.dump(info_dict, outfile)
+        else:
+            print("Skipping download: File already exists.")
 
 
 # prepares book for download
@@ -133,13 +136,14 @@ def download_book(book, directory, assets, session, headers):
 
     # cover image
     if len(image) > 0 and 'cover' in assets:
-        filename = os.path.join(book_directory, title + ".jpg")
-        image_url = "https:" + image[0].replace("/imagecache/thumbview", "", 1)
+        image_url = image[0].replace("/imagecache/thumbview", "", 1)
+        filename = os.path.join(book_directory, title + "." + image_url.split(".")[-1])
         print("Downloading IMAGE")
         download_to_file(filename, image_url, session, headers, False)
 
     # book details
     if 'info' in assets:
+        print("Downloading INFO")
         save_book_details(book, title, book_directory, session, headers)
 
     # delete directory if it's empty
@@ -314,22 +318,36 @@ def main(argv):
         print("Logged in successfully!")
 
         if book_assets:
+            if 'all' in book_assets:
+                book_assets = 'pdf,mobi,epub,code,cover,info'
+                print('Book assets:', book_assets)
 
             # get the list of books
             books_page = session.get("https://www.packtpub.com/account/my-ebooks", verify=True, headers=headers)
             books_tree = html.fromstring(books_page.content)
-            book_nodes = books_tree.xpath("//div[@id='product-account-list']/div[contains(@class,'product-line unseen')]")
-
+            subpage_nodes = books_tree.xpath("//div[@id='product-account-list']/div/a[contains(@class,'solr-page-page-selector-page')]")
+            print("Subpages: ", len(subpage_nodes) + 1)
             print('###########################################################################')
-            print("FOUND {0} BOOKS: STARTING DOWNLOADS".format(len(book_nodes)))
+            print("FOUND {0} SUBPAGES WITH BOOKS".format(len(subpage_nodes)))
             print('###########################################################################')
 
-            # loop through the books
-            for book in book_nodes:
+            books_directory = os.path.join(root_directory, "books")
+            
+            # loop through the subpages with books
+            for subpage in range(1, len(subpage_nodes) + 2):
+                books_page = session.get("https://www.packtpub.com/account/my-ebooks?page={0}".format(subpage), verify=True, headers=headers)
+                books_tree = html.fromstring(books_page.content)
+                book_nodes = books_tree.xpath("//div[@id='product-account-list']/div[contains(@class,'product-line unseen')]")
+            
+                print('###########################################################################')
+                print("SUBPAGE {0} FOUND {1} BOOKS: STARTING DOWNLOADS".format(subpage, len(book_nodes)))
+                print('###########################################################################')
 
-                # download the book
-                books_directory = os.path.join(root_directory, "books")
-                download_book(book, books_directory, book_assets, session, headers)
+                
+                # loop through the books
+                for book in book_nodes:
+                    # download the book
+                    download_book(book, books_directory, book_assets, session, headers)
 
         if video_assets:
 
